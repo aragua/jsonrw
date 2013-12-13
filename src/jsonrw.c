@@ -14,6 +14,7 @@ typedef enum
 
 static action_mode_e get_action_mode_from_string( const char * string );
 static int get_field_value( const char * file, const char * field );
+static int set_field_value( const char * file, const char * field, const char * value );
 
 static int verbose = 0;
 
@@ -21,11 +22,11 @@ int main ( int argc, char ** argv )
 {
     int c;
     action_mode_e mode = AM_GET;
-    char * input = NULL, * output = NULL, * field = NULL;
+    char * input = NULL, * output = NULL, * field = NULL, * content = NULL;
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "vm:f:i:o:")) != -1)
+    while ((c = getopt (argc, argv, "vm:f:i:o:c:")) != -1)
     {
         switch (c)
         {
@@ -40,6 +41,9 @@ int main ( int argc, char ** argv )
             break;
         case 'o':
             output = optarg;
+            break;
+        case 'c':
+            content = optarg;
             break;
         case 'v':
             verbose = 1;
@@ -69,12 +73,12 @@ int main ( int argc, char ** argv )
     case AM_GET:
         if ( !input )
         {
-            fprintf( stderr, "Usage : jsonrw -f <file> [OPTIONS]\n");
+            fprintf( stderr, "Usage : jsonrw -i <file> [OPTIONS]\n");
             return EXIT_FAILURE;
         }
         if ( !field )
         {
-            fprintf( stderr, "Option field (-f) is mandatory with -m get\nUsage : jsonrw -m get -f <field_value>\n");
+            fprintf( stderr, "Option field (-f) is mandatory with -m get\nUsage : jsonrw -m get -i <file> -f <field_value>\n");
             return EXIT_FAILURE;
         }
         if ( get_field_value( input, field ) != EXIT_SUCCESS )
@@ -82,7 +86,23 @@ int main ( int argc, char ** argv )
         break;
 
     case AM_SET:
-        fprintf( stderr, "Action mode not implemented\n");
+        if ( !input )
+        {
+            fprintf( stderr, "Usage : jsonrw -m set -i <file> [OPTIONS]\n");
+            return EXIT_FAILURE;
+        }
+        if ( !field )
+        {
+            fprintf( stderr, "Option field (-f) is mandatory with -m set\nUsage : jsonrw -m set -i <file> -f <field_value>\n");
+            return EXIT_FAILURE;
+        }
+        if ( !content )
+        {
+            fprintf( stderr, "Option field (-c) is mandatory with -m set\nUsage : jsonrw -m set -i <file> -f <field_value> -c <content>\n");
+            return EXIT_FAILURE;
+        }
+        if ( set_field_value( input, field, content ) != EXIT_SUCCESS )
+            return EXIT_FAILURE;
         break;
 
     default:
@@ -123,15 +143,15 @@ static int get_field_value( const char * file, const char * field )
     }
 
     obj = json_object_get( file_contents, field );
-    if (json_is_object(obj))
+    if (!obj)
     {
-        fprintf( stderr, "Error parsing json %s to find field %s\n", file, field );
+        fprintf( stderr, "Field %s not found\n", field );
         json_object_clear(file_contents);
         return EXIT_FAILURE;
     }
 
     if ( json_is_array(obj) )
-        verbose == 1 ? fprintf( stdout, "%s is an array\n", field ) : fprintf( stdout, "%s\n", json_string_value(obj) ) ;
+        verbose == 1 ? fprintf( stdout, "%s is an array\n", field ) : fprintf( stdout, "array\n" );
     else
     {
         if ( verbose == 1 )
@@ -139,6 +159,34 @@ static int get_field_value( const char * file, const char * field )
         else
             fprintf( stdout, "%s\n", json_string_value(obj) );
     }
+
+    json_object_clear(obj);
+    json_object_clear(file_contents);
+
+    return EXIT_SUCCESS;
+}
+
+static int set_field_value( const char * file, const char * field, const char * value )
+{
+    json_t * file_contents, * obj;
+    json_error_t err;
+    int ret;
+
+    file_contents = json_load_file( file, 0, &err);
+    if (!json_is_object(file_contents))
+    {
+        fprintf( stderr, "JSON decode of '%s' failed(%d): %s\n", file, err.line, err.text);
+        return EXIT_FAILURE;
+    }
+
+    obj = json_object_get( file_contents, field );
+ /*   if (obj)
+        json_object_set( file_contents, field, json_string(value) ) < 0 ? fprintf( stderr, "json_object_set failed(%d): %s\n", err.line, err.text) : fprintf(stderr,"succeed\n") ;
+    else*/
+        json_object_set_new( file_contents, field, json_string(value) ); // maybe a memory leak wit json_string(value)???
+
+    if ( json_dump_file( file_contents, file, JSON_INDENT(2)) < 0 )
+        fprintf( stderr, "json_dump_file failto write %s.Maybe the directory does not exists or you don't have right access\n", file );
 
     json_object_clear(obj);
     json_object_clear(file_contents);
